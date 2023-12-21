@@ -13,14 +13,6 @@ from googleapiclient.errors import HttpError
 from zeep import Client
 from zeep import xsd
 
-# Suds
-#from suds.client import Client
-
-from requests import Session
-from requests.auth import HTTPBasicAuth
-from zeep.transports import Transport
-
-
 
 
 # If modifying these scopes, delete the file token.json.
@@ -29,12 +21,49 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 # The ID and range of a sample spreadsheet.
 
 WSDL = "https://webservice.kareo.com/services/soap/2.1/KareoServices.svc?wsdl"
+insurances = []
+names = {}
+encounterRates = {}
+praId = 1
+praName = "Doe Medical Inc"
 
+def getPatient(client, id):
+  filter = client.get_type('ns1:SinglePatientFilter')
+  reqhead = client.get_type('ns1:RequestHeader')
+  getpatientreq = client.get_type('ns1:GetPatientReq')
+
+  header_value = reqhead(ClientVersion = "2.0.8684.25480", CustomerKey=config.TEBRA_CUSTOMER_KEY, User=config.TEBRA_USER, Password=config.TEBRA_PASSCODE)
+  filter_soap = filter(ExternalID = "1", ExternalVendorID = 1, PatientID = id)
+
+  fullRequest = getpatientreq(RequestHeader = header_value, Filter = filter_soap)
+
+  result = client.service.GetPatient(fullRequest)
+
+  Insurance = result.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
+  insurances.append(Insurance)
+  return result
+
+def getEncounters(client, id):
+  details = client.get_type("ns1:GetEncounterDetailsReq")
+  reqhead = client.get_type('ns1:RequestHeader')
+  filter = client.get_type("ns1:EncounterDetailsFilter")
+  practice = client.get_type("ns1:EncounterDetailsPractice")
+
+  header_value = reqhead(ClientVersion = "2.0.8684.25480", CustomerKey=config.TEBRA_CUSTOMER_KEY, User=config.TEBRA_USER, Password=config.TEBRA_PASSCODE)
+  practice_value = practice(PracticeID = praId, PracticeName = praName)
+  filter_value = filter(EncounterID = id, Practice = practice_value)
+  details_value = details(RequestHeader = header_value, Filter = filter_value)
+
+  result = client.service.GetEncounterDetails(details_value)
+
+  return result 
 
 def main():
   """Shows basic usage of the Sheets API.
   Prints values from a sample spreadsheet.
   """
+  client = Client(wsdl=WSDL)
+
   creds = None
   # The file token.json stores the user's access and refresh tokens, and is
   # created automatically when the authorization flow completes for the first
@@ -70,38 +99,33 @@ def main():
       print("No data found.")
       return
 
-    # Now, get the Tebra SOAP API through the Customer Key
-      
+    for row in cells:
+      names[row[2]] = row[3]
+      encounterRates[row[2]] = 0
+
+    
 
   except HttpError as err:
     print(err)
 
   try:
-    url = "https://jsonplaceholder.typicode.com/posts/1"
+    #28500
+    encounterStart = 29600
+    encounterEnd = 29650
 
-    # A GET request to the API
-    response = requests.get(url)
+    for id in range(encounterStart, encounterEnd):
+      result = getEncounters(client, id)
 
-    # Print the response
-    response_json = response.json()
-    print(response_json)
-
-  except HttpError as err:
-    print(err)
-  
-  client = Client(wsdl=WSDL)
+      PatientId = result.EncounterDetails.EncounterDetailsData[0].PatientID
+      if PatientId in names:
+        
+        encounterRates[PatientId] = encounterRates[PatientId] + 1
     
-  filter = client.get_type('ns1:SinglePatientFilter')
-  reqhead = client.get_type('ns1:RequestHeader')
-  getpatientreq = client.get_type('ns1:GetPatientReq')
-
-  header_value = reqhead(ClientVersion = "2.0.8684.25480", CustomerKey=config.TEBRA_CUSTOMER_KEY, User=config.TEBRA_USER, Password=config.TEBRA_PASSCODE)
-  filter_soap = filter(ExternalID = "1", ExternalVendorID = 1, PatientID = 2746)
-
-  fullRequest = getpatientreq(RequestHeader = header_value, Filter = filter_soap)
-
-  result = client.service.GetPatient(fullRequest)
-
+    print(encounterRates)
+    
+  
+  except Exception as err:
+    print(err)
 
  
   
