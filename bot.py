@@ -45,12 +45,16 @@ def changeMeasure(index):
     return 493
 
 
-def flipDateFormat(day):
+def flipDateFormat(day, flip):
   newDay = ""
   slash = day.split("/")
   if len(slash[1]) == 1:
     slash[1] = "0" + slash[1]
-  newDay = slash[2] + "/" + slash[1] + "/" + slash[0]
+
+  if flip:
+    newDay = slash[2] + "/" + slash[1] + "/" + slash[0]
+  else:
+    newDay = slash[2] + "/" + slash[0] + "/" + slash[1]
 
   return newDay
 
@@ -157,9 +161,7 @@ def main():
 
   
   #28500
-  current = 2
   measures = [130, 155, 181, 286, 47, 493]
-  allowedDiagnosis = ["G30.9"]
   encounterStart = 29540
   newRowIndex = {}
   encounterEnd = 29650
@@ -175,7 +177,7 @@ def main():
     if patientId in names:
 
       patient = getPatient(client, encounter.EncounterDetails.EncounterDetailsData[0].PatientID)
-      serviceDate = flipDateFormat(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0])
+      serviceDate = flipDateFormat(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0], False)
 
       print(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0])
       print(serviceDate)
@@ -184,7 +186,7 @@ def main():
         payerName = patient.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
       else:
         payerName = "None"
-      birth = flipDateFormat(patient.Patient.DOB)
+      birth = flipDateFormat(patient.Patient.DOB, False)
       code = 99350
 
       
@@ -215,14 +217,12 @@ def main():
       # Encounter Code for 130, 155, 181, 47, 
       # 286 gets diagnosis code, 493 gets reporting criteria
 
-      if measureNumber != 286 and measureNumber != 493:
-        row.append(code)
-      elif measureNumber == 286:
+      if measureNumber == 286:
         row.append("G30.9")
       elif measureNumber == 493:
         row.append("1")
-        row.append(code)
-      
+        
+      row.append(code)
 
       # Last
       if measureNumber == 130:
