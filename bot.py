@@ -30,6 +30,16 @@ current = 130
 praId = 1
 praName = "Doe Medical Inc"
 
+def convertPayerName(name):
+  if name == "UnitedHealthCare":
+    return "United"
+  elif name == "Medicare - California - Northern Region":
+    return "Medicare Part B FFS"
+  elif name == "Blue Cross - California (Anthem)":
+    return "AnthemWellPoint"
+  else:
+    return "Other"
+
 def changeMeasure(index):
   if (index < 6):
     return 130
@@ -184,8 +194,9 @@ def main():
 
       if patient.Patient.Cases.PatientCaseData[0].InsurancePolicies != None:
         payerName = patient.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
+        payerName = convertPayerName(payerName)
       else:
-        payerName = "None"
+        payerName = "Other"
       birth = flipDateFormat(patient.Patient.DOB, False)
       code = 99350
 
@@ -237,8 +248,8 @@ def main():
       elif measureNumber == 286:
         row.append("G9922")
       elif measureNumber == 47:
-        row.append("TRUE")
         row.append("FALSE")
+        row.append("TRUE")
         row.append("1123F") 
       elif measureNumber == 493:
         row.append("FALSE")
