@@ -2,6 +2,7 @@ import os.path
 import requests
 import config
 import json
+import time
 
 # Google Sheet Imports
 from google.auth.transport.requests import Request
@@ -172,9 +173,9 @@ def main():
   
   #28500
   measures = [130, 155, 181, 286, 47, 493]
-  encounterStart = 29540
+  encounterStart = 28500
   newRowIndex = {}
-  encounterEnd = 29650
+  encounterEnd = 29657
 
   for id in range(encounterStart, encounterEnd):
     percentage = (id - encounterStart) / (encounterEnd - encounterStart) 
@@ -186,6 +187,7 @@ def main():
 
     if patientId in names:
 
+      time.sleep(0.5)
       patient = getPatient(client, encounter.EncounterDetails.EncounterDetailsData[0].PatientID)
       serviceDate = flipDateFormat(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0], False)
 
