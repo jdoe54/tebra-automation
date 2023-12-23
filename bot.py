@@ -27,6 +27,13 @@ encounterRates = {}
 praId = 1
 praName = "Doe Medical Inc"
 
+def flipDateFormat(day):
+  newDay = ""
+  slash = day.split("/")
+  newDay = slash[2] + "/" + slash[1] + "/" + slash[0]
+
+  return newDay
+
 def getPatient(client, id):
   filter = client.get_type('ns1:SinglePatientFilter')
   reqhead = client.get_type('ns1:RequestHeader')
@@ -110,18 +117,53 @@ def main():
 
   try:
     #28500
-    encounterStart = 29600
+    current = 0
+    measures = [130, 155, 181, 236, 47, 493]
+    encounterStart = 29649
     encounterEnd = 29650
 
     for id in range(encounterStart, encounterEnd):
-      result = getEncounters(client, id)
+      percentage = (id - encounterStart) / (encounterEnd - encounterStart) 
+      print(percentage * 100)
 
-      PatientId = result.EncounterDetails.EncounterDetailsData[0].PatientID
-      if PatientId in names:
+      encounter = getEncounters(client, id)
+
+      patientId = encounter.EncounterDetails.EncounterDetailsData[0].PatientID
+      patient = getPatient(client, encounter.EncounterDetails.EncounterDetailsData[0].PatientID)
+      serviceDate = flipDateFormat(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0])
+      payerName = patient.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
+      birth = flipDateFormat(patient.Patient.DOB)
+      code = 99350
+      row = {}
+
+      
+      row = {
+        "ProviderNPI": config.PATIENT_360_PROVIDER_NPI,
+        "ProviderTIN": config.PATIENT_360_PROVIDER_TIN,
+        "PatientID": patientId,
+        "DateOfService": serviceDate,
+        "PatientBirth": birth,
+        "Payer": payerName,
+        "EncounterCode": code,
+        "MeasureCode": "G8427"
+      }
+
+      row.Measure = measures[current]
+      
+      if measures[current] == 181:
+        row.Absence = "TRUE"
+      elif measures[current] == 155:
+        row.Screened = "TRUE"
+        row.Service = "FALSE"
+        row.MeasureCode = "0518F" 
+
+      print(patient)
+      
+      if patientId in names:
         
-        encounterRates[PatientId] = encounterRates[PatientId] + 1
+        encounterRates[patientId] = encounterRates[patientId] + 1
     
-    print(encounterRates)
+    #print(encounterRates)
     
   
   except Exception as err:
