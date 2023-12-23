@@ -1,6 +1,7 @@
 import os.path
 import requests
 import config
+import json
 
 # Google Sheet Imports
 from google.auth.transport.requests import Request
@@ -16,7 +17,7 @@ from zeep import xsd
 
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 # The ID and range of a sample spreadsheet.
 
@@ -24,12 +25,31 @@ WSDL = "https://webservice.kareo.com/services/soap/2.1/KareoServices.svc?wsdl"
 insurances = []
 names = {}
 encounterRates = {}
+newRows = {}
+current = 130
 praId = 1
 praName = "Doe Medical Inc"
+
+def changeMeasure(index):
+  if (index < 6):
+    return 130
+  elif (index < 11):
+    return 155
+  elif (index < 16):
+    return 181
+  elif (index < 21):
+    return 286
+  elif (index < 26):
+    return 47
+  else:
+    return 493
+
 
 def flipDateFormat(day):
   newDay = ""
   slash = day.split("/")
+  if len(slash[1]) == 1:
+    slash[1] = "0" + slash[1]
   newDay = slash[2] + "/" + slash[1] + "/" + slash[0]
 
   return newDay
@@ -46,8 +66,17 @@ def getPatient(client, id):
 
   result = client.service.GetPatient(fullRequest)
 
-  Insurance = result.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
-  insurances.append(Insurance)
+
+  #print(result.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0])
+
+  if result.Patient.Cases.PatientCaseData[0].InsurancePolicies != None:
+    
+    Insurance = result.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
+    insurances.append(Insurance)
+  else:
+    insurances.append("None")
+ 
+
   return result
 
 def getEncounters(client, id):
@@ -64,6 +93,10 @@ def getEncounters(client, id):
   result = client.service.GetEncounterDetails(details_value)
 
   return result 
+
+def updateSheet(paramRange, sheet, data, newEntry):
+  print(paramRange)
+  updateResult = (sheet.values().update(spreadsheetId=config.SAMPLE_SPREADSHEET_ID, range=paramRange, valueInputOption = "USER_ENTERED", body = {"values": [newEntry]})).execute()
 
 def main():
   """Shows basic usage of the Sheets API.
@@ -101,73 +134,159 @@ def main():
         .execute()
     )
     cells = result.get("values", [])
+    
+    
 
     if not cells:
       print("No data found.")
       return
 
-    for row in cells:
-      names[row[2]] = row[3]
-      encounterRates[row[2]] = 0
-
+    indice = 1
     
+
+    for row in cells:
+      
+      names[row[2]] = changeMeasure(indice)
+      encounterRates[row[2]] = 0
+      indice += 1
+      if indice == 31:
+        indice = 1
 
   except HttpError as err:
     print(err)
 
-  try:
-    #28500
-    current = 0
-    measures = [130, 155, 181, 236, 47, 493]
-    encounterStart = 29649
-    encounterEnd = 29650
+  
+  #28500
+  current = 2
+  measures = [130, 155, 181, 286, 47, 493]
+  allowedDiagnosis = ["G30.9"]
+  encounterStart = 29540
+  newRowIndex = {}
+  encounterEnd = 29650
 
-    for id in range(encounterStart, encounterEnd):
-      percentage = (id - encounterStart) / (encounterEnd - encounterStart) 
-      print(percentage * 100)
+  for id in range(encounterStart, encounterEnd):
+    percentage = (id - encounterStart) / (encounterEnd - encounterStart) 
+    print(percentage * 100)
 
-      encounter = getEncounters(client, id)
+    encounter = getEncounters(client, id)
 
-      patientId = encounter.EncounterDetails.EncounterDetailsData[0].PatientID
+    patientId = encounter.EncounterDetails.EncounterDetailsData[0].PatientID
+
+    if patientId in names:
+
       patient = getPatient(client, encounter.EncounterDetails.EncounterDetailsData[0].PatientID)
       serviceDate = flipDateFormat(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0])
-      payerName = patient.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
+
+      print(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0])
+      print(serviceDate)
+
+      if patient.Patient.Cases.PatientCaseData[0].InsurancePolicies != None:
+        payerName = patient.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
+      else:
+        payerName = "None"
       birth = flipDateFormat(patient.Patient.DOB)
       code = 99350
+
+      
+      measureNumber = names[str(patientId)]
+
       row = {}
+      row = [
+        config.PATIENT_360_PROVIDER_NPI, #"ProviderNPI": 
+        config.PATIENT_360_PROVIDER_TIN, #"ProviderTIN": 
+        patientId, #"PatientID": 
+        serviceDate, #"DateOfService": 
+        
+      ]
+
+      """
+      birth, #"PatientBirth": 
+        payerName, #"Payer": 
+        code, #"EncounterCode": 
+        "G8427", #"MeasureCode": 
+        0, #"Measure"
+      """
+      # for 286, no birthday
+      if measureNumber != 286:
+        row.append(birth)
+
+      row.append(payerName)
+
+      # Encounter Code for 130, 155, 181, 47, 
+      # 286 gets diagnosis code, 493 gets reporting criteria
+
+      if measureNumber != 286 and measureNumber != 493:
+        row.append(code)
+      elif measureNumber == 286:
+        row.append("G30.9")
+      elif measureNumber == 493:
+        row.append("1")
+        row.append(code)
+      
+
+      # Last
+      if measureNumber == 130:
+        row.append("G8427")
+      elif measureNumber == 155:
+        row.append("TRUE")
+        row.append("FALSE")
+        row.append("0518F")
+      elif measureNumber == 181:
+        row.append("TRUE")
+        row.append("G8535")
+      elif measureNumber == 286:
+        row.append("G9922")
+      elif measureNumber == 47:
+        row.append("TRUE")
+        row.append("FALSE")
+        row.append("1123F") 
+      elif measureNumber == 493:
+        row.append("FALSE")
+        row.append("FALSE")
+        row.append("FALSE")
+        row.append("FALSE")
+        row.append("M1168") 
+
+      """
+      if measureNumber == 181:
+        row['Absence'] = "TRUE"
+        row['MeasureCode'] = "G8535"
+      elif measureNumber == 155:
+        row['Screened'] = "TRUE"
+        row['Service'] = "FALSE"
+        row['MeasureCode'] = "0518F"
+      elif measureNumber == 286:
+        # Check if patient has Alzheimers
+        row['DiagnosisCode'] = "G30.9"
+        row['MeasureCode'] = "G9922" 
+      elif measureNumber == 47:
+        row['Service'] = "TRUE"
+        row['Absence'] = "FALSE"
+        row['MeasureCode'] = "1123F"
+      """
+
+      if measureNumber in newRows:
+        newRows[measureNumber].append(row)
+        
+      else:
+        newRows[measureNumber] = [row]
+        newRowIndex[measureNumber] = 2
+      
+      # Algorithm 
+      # Every 5 patient is the same measure. However, if t
 
       
-      row = {
-        "ProviderNPI": config.PATIENT_360_PROVIDER_NPI,
-        "ProviderTIN": config.PATIENT_360_PROVIDER_TIN,
-        "PatientID": patientId,
-        "DateOfService": serviceDate,
-        "PatientBirth": birth,
-        "Payer": payerName,
-        "EncounterCode": code,
-        "MeasureCode": "G8427"
-      }
-
-      row.Measure = measures[current]
-      
-      if measures[current] == 181:
-        row.Absence = "TRUE"
-      elif measures[current] == 155:
-        row.Screened = "TRUE"
-        row.Service = "FALSE"
-        row.MeasureCode = "0518F" 
-
-      print(patient)
       
       if patientId in names:
-        
+        updateSheet(str(measureNumber) + "!A" + str(newRowIndex[measureNumber]) + ":M", sheet, None, row)
+        newRowIndex[measureNumber] += 1
         encounterRates[patientId] = encounterRates[patientId] + 1
-    
-    #print(encounterRates)
-    
+
+      
+
+  print(json.dumps(newRows, indent=4))
   
-  except Exception as err:
-    print(err)
+  
 
  
   
