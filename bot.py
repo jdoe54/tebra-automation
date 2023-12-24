@@ -1,5 +1,4 @@
 import os.path
-import requests
 import config
 import json
 import time
@@ -23,15 +22,16 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 # The ID and range of a sample spreadsheet.
 
 WSDL = "https://webservice.kareo.com/services/soap/2.1/KareoServices.svc?wsdl"
-insurances = []
+
 names = {}
 encounterRates = {}
 newRows = {}
-current = 130
-praId = 1
-praName = "Doe Medical Inc"
+PRACTICE_ID = 1
+PRACTICE_NAME = "Doe Medical Inc"
 
 def convertPayerName(name):
+  # Function converts given name into acceptable name used for imports.
+
   if name == "UnitedHealthCare":
     return "United"
   elif name == "Medicare - California - Northern Region":
@@ -42,6 +42,8 @@ def convertPayerName(name):
     return "Other"
 
 def changeMeasure(index):
+  # Function provides a measure number based on the patient's number in the order of the first spreadsheet.
+
   if (index < 6):
     return 130
   elif (index < 11):
@@ -56,20 +58,30 @@ def changeMeasure(index):
     return 493
 
 
-def flipDateFormat(day, flip):
+def flipDateFormat(day):
+  # Changes the date from MM/DD/YYYY to YYYY/MM/DD.
+  
   newDay = ""
   slash = day.split("/")
   if len(slash[1]) == 1:
     slash[1] = "0" + slash[1]
 
-  if flip:
-    newDay = slash[2] + "/" + slash[1] + "/" + slash[0]
-  else:
-    newDay = slash[2] + "/" + slash[0] + "/" + slash[1]
+  newDay = slash[2] + "/" + slash[0] + "/" + slash[1]
 
   return newDay
 
 def getPatient(client, id):
+  """
+  # Provides the patient information using Kareo SOAP API.
+
+  Args: 
+    client: The WSDL client object passed.
+    id: Patient ID.
+
+  Returns:
+    Patient info.
+  """
+
   filter = client.get_type('ns1:SinglePatientFilter')
   reqhead = client.get_type('ns1:RequestHeader')
   getpatientreq = client.get_type('ns1:GetPatientReq')
@@ -80,28 +92,28 @@ def getPatient(client, id):
   fullRequest = getpatientreq(RequestHeader = header_value, Filter = filter_soap)
 
   result = client.service.GetPatient(fullRequest)
-
-
-  #print(result.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0])
-
-  if result.Patient.Cases.PatientCaseData[0].InsurancePolicies != None:
-    
-    Insurance = result.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
-    insurances.append(Insurance)
-  else:
-    insurances.append("None")
  
-
   return result
 
 def getEncounters(client, id):
+  """
+  # Provides encounter information from practice ID, name, and encounter ID.
+
+  Args: 
+    client: The WSDL client object passed.
+    id: Encounter ID.
+
+  Returns:
+    Encounter details.
+  """
+
   details = client.get_type("ns1:GetEncounterDetailsReq")
   reqhead = client.get_type('ns1:RequestHeader')
   filter = client.get_type("ns1:EncounterDetailsFilter")
   practice = client.get_type("ns1:EncounterDetailsPractice")
 
   header_value = reqhead(ClientVersion = "2.0.8684.25480", CustomerKey=config.TEBRA_CUSTOMER_KEY, User=config.TEBRA_USER, Password=config.TEBRA_PASSCODE)
-  practice_value = practice(PracticeID = praId, PracticeName = praName)
+  practice_value = practice(PracticeID = PRACTICE_ID, PracticeName = PRACTICE_NAME)
   filter_value = filter(EncounterID = id, Practice = practice_value)
   details_value = details(RequestHeader = header_value, Filter = filter_value)
 
@@ -109,9 +121,11 @@ def getEncounters(client, id):
 
   return result 
 
-def updateSheet(paramRange, sheet, data, newEntry):
-  print(paramRange)
-  updateResult = (sheet.values().update(spreadsheetId=config.SAMPLE_SPREADSHEET_ID, range=paramRange, valueInputOption = "USER_ENTERED", body = {"values": [newEntry]})).execute()
+def updateSheet(paramRange, sheet, newEntry):
+  # Enters new encounter details into the Google Spreadsheet, sheet can change based on param. newEntry is the encounter details.
+
+  updateResult = (sheet.values().update(spreadsheetId=config.SPREADSHEET_ID, range=paramRange, valueInputOption = "USER_ENTERED", body = {"values": [newEntry]})).execute()
+  return updateResult
 
 def main():
   """Shows basic usage of the Sheets API.
@@ -145,22 +159,17 @@ def main():
     sheet = service.spreadsheets()
     result = (
         sheet.values()
-        .get(spreadsheetId=config.SAMPLE_SPREADSHEET_ID, range=config.SAMPLE_RANGE_NAME)
+        .get(spreadsheetId=config.SPREADSHEET_ID, range=config.RANGE_NAME)
         .execute()
     )
     cells = result.get("values", [])
     
-    
-
     if not cells:
       print("No data found.")
       return
 
     indice = 1
-    
-
     for row in cells:
-      
       names[row[2]] = changeMeasure(indice)
       encounterRates[row[2]] = 0
       indice += 1
@@ -171,56 +180,47 @@ def main():
     print(err)
 
   
-  #28500
-  measures = [130, 155, 181, 286, 47, 493]
+  # July dates start at 28500
   encounterStart = 28500
-  newRowIndex = {}
   encounterEnd = 29657
+  newRowIndex = {}
 
   for id in range(encounterStart, encounterEnd):
+ 
+    # This will create a row for a sheet in the spreadsheet.
+    # Percentage is how many encounters have been parsed through.
+
     percentage = (id - encounterStart) / (encounterEnd - encounterStart) 
-    print(percentage * 100)
+    print("Completion: " + str(percentage * 100) + "%")
 
     encounter = getEncounters(client, id)
-
     patientId = encounter.EncounterDetails.EncounterDetailsData[0].PatientID
 
     if patientId in names:
 
       time.sleep(0.5)
       patient = getPatient(client, encounter.EncounterDetails.EncounterDetailsData[0].PatientID)
-      serviceDate = flipDateFormat(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0], False)
-
-      print(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0])
-      print(serviceDate)
+      serviceDate = flipDateFormat(encounter.EncounterDetails.EncounterDetailsData[0].ServiceStartDate.split(" ")[0])
 
       if patient.Patient.Cases.PatientCaseData[0].InsurancePolicies != None:
         payerName = patient.Patient.Cases.PatientCaseData[0].InsurancePolicies.PatientInsurancePolicyData[0].CompanyName
         payerName = convertPayerName(payerName)
       else:
         payerName = "Other"
-      birth = flipDateFormat(patient.Patient.DOB, False)
+      
+      birth = flipDateFormat(patient.Patient.DOB)
       code = 99350
 
-      
       measureNumber = names[str(patientId)]
 
       row = {}
       row = [
-        config.PATIENT_360_PROVIDER_NPI, #"ProviderNPI": 
-        config.PATIENT_360_PROVIDER_TIN, #"ProviderTIN": 
-        patientId, #"PatientID": 
-        serviceDate, #"DateOfService": 
-        
+        config.PATIENT_360_PROVIDER_NPI, 
+        config.PATIENT_360_PROVIDER_TIN, 
+        patientId,
+        serviceDate, 
       ]
 
-      """
-      birth, #"PatientBirth": 
-        payerName, #"Payer": 
-        code, #"EncounterCode": 
-        "G8427", #"MeasureCode": 
-        0, #"Measure"
-      """
       # for 286, no birthday
       if measureNumber != 286:
         row.append(birth)
@@ -260,48 +260,16 @@ def main():
         row.append("FALSE")
         row.append("M1168") 
 
-      """
-      if measureNumber == 181:
-        row['Absence'] = "TRUE"
-        row['MeasureCode'] = "G8535"
-      elif measureNumber == 155:
-        row['Screened'] = "TRUE"
-        row['Service'] = "FALSE"
-        row['MeasureCode'] = "0518F"
-      elif measureNumber == 286:
-        # Check if patient has Alzheimers
-        row['DiagnosisCode'] = "G30.9"
-        row['MeasureCode'] = "G9922" 
-      elif measureNumber == 47:
-        row['Service'] = "TRUE"
-        row['Absence'] = "FALSE"
-        row['MeasureCode'] = "1123F"
-      """
-
       if measureNumber in newRows:
         newRows[measureNumber].append(row)
-        
       else:
         newRows[measureNumber] = [row]
         newRowIndex[measureNumber] = 2
       
-      # Algorithm 
-      # Every 5 patient is the same measure. However, if t
-
-      
-      
       if patientId in names:
-        updateSheet(str(measureNumber) + "!A" + str(newRowIndex[measureNumber]) + ":M", sheet, None, row)
+        updateSheet(str(measureNumber) + "!A" + str(newRowIndex[measureNumber]) + ":M", sheet, row)
         newRowIndex[measureNumber] += 1
         encounterRates[patientId] = encounterRates[patientId] + 1
-
-      
-
-  print(json.dumps(newRows, indent=4))
-  
-  
-
- 
   
  
 if __name__ == "__main__":
